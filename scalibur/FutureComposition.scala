@@ -13,7 +13,10 @@ object FutureComposition extends App {
         a*10
     }
     
-    def sumCostyOperations(a: Int, b: Int, c: Int): Future[Int] = ???
+    def sumCostyOperations(a: Int, b: Int, c: Int): Future[Int] = {
+        // wait for all costy operations to finish, then sum results
+        // I don't know the syntax yet
+    }
     
     
     val result = Await.result(sumCostyOperations(1, 2, 3), 1 minute)
