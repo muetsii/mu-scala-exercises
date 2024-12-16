@@ -1,0 +1,5 @@
+#!/bin/bash
+
+classname=`basename $1 .scala`
+
+scalac $classname.scala && scala $classname
