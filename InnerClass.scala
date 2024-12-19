@@ -1,5 +1,6 @@
 object InnerClass extends App {
     class Hengeyokai(name: String, race: String, breed: String, auspice: String, rank: Int = 1) {
+        println(s"$name is being born!")
         require(rank >= 0)
         require(rank <= 6)
 
