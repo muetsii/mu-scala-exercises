@@ -6,8 +6,12 @@ object TesteableTester extends App with Testeable[Int, String] {
         case 4 => "catorce"
     }
 
-    override def inputs(): List[Int] = List(1, 2, 3, 4)
-    override def expected(): List[String] = List("uno", "dos", "tres", "cuatro")
+    override def testCases(): List[TestCase[Int, String]] = List(
+        TestCase(1, "uno"),
+        TestCase(2, "dos"),
+        TestCase(3, "tres"),
+        TestCase(4, "cuatro")
+    )
 
     run()
 }
