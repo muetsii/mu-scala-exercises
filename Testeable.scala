@@ -9,17 +9,17 @@ trait Testeable[A, B] {
     def compare(expected: B, actual: B): Boolean = expected equals actual
 
     def run(): Unit = {
-        val in = inputs()
-        val ex = expected()
+        val cases  = testCases()
 
-        for (i <- 0 until in.length) {
-            val out = solve(in(i))
+        cases.foreach(tc => {
+            val out = solve(tc.input)
 
-            if (compare(ex(i), out)) {
-                println(s"OK    ($i) ${in(i)} -> ${ex(i)}")
+            if (compare(tc.expected, out)) {
+                println(s"OK    ${tc.input} -> ${tc.expected}")
             } else {
-                println(s"ERROR ($i) ${in(i)} -> ${ex(i)} / $out")
+                println(s"ERROR ${tc.input} -> ${tc.expected} / $out")
             }
-        }
+
+        })
     }
 }
