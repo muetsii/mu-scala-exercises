@@ -3,5 +3,5 @@ object PartiallyApplied extends App {
 
     val double = multiply(2, _: Int)
 
-    println(double(33))
+    println(double(33)) // 66
 }
