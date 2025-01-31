@@ -57,7 +57,18 @@ object AngbandStairs extends App with Testeable[List[String], Int] {
             "# @ #   ###  #",
             "#   # #      #",
             "##############"
-        ), 20)
+        ), 20),
+        TestCase(List(
+            "#######",
+            "#.....#",
+            "#.....#",
+            "#.@...#",
+            "###...#",
+            "#.....#",
+            "#.>...#",
+            "#.....#",
+            "#######"
+        ), 5)
     )
 
     override def solve(input: List[String]): Int = 0 // FIXME: your code here
