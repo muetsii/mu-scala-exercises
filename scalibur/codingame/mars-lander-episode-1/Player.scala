@@ -3,8 +3,7 @@ import scala.util._
 import scala.io.StdIn._
 
 /**
- * Auto-generated code below aims at helping you parse
- * the standard input according to the problem statement.
+  * https://www.codingame.com/ide/puzzle/mars-lander-episode-1
  **/
 object Player extends App {
     val GRAVITY = 3.711
