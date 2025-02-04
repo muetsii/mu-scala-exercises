@@ -3,9 +3,12 @@ import scala.util._
 import scala.io.StdIn._
 
 /**
+  * updated for episode 2
   * https://www.codingame.com/ide/puzzle/mars-lander-episode-1
+  * https://www.codingame.com/ide/puzzle/mars-lander-episode-2
  **/
 object Player extends App {
+    Console.err.println("Marx-Lander from New Soviet Union of Socialist Republics") // Not NASA!
     val GRAVITY = 3.711
     val THRUSTS = Range(0, 4)
     val MAX_SPEED = -40
@@ -19,7 +22,7 @@ object Player extends App {
             Point(landX, landY)
     }).toList)
 
-    val strategy: LandingStrategy = new SpeedLandingStrategy(moonMap, GRAVITY, Range(0, 4), MAX_SPEED)
+    val strategy: LandingStrategy = new Speed2DLandingStrategy(moonMap, GRAVITY, Range(0, 4), MAX_SPEED)
 
     // game loop
     while(true) {
@@ -31,20 +34,14 @@ object Player extends App {
         val Array(x, y, hSpeed, vSpeed, fuel, rotate, power) = (readLine split " ").filter(_ != "").map (_.toInt)
         // FIXME: probably can use apply to use directly the Position constructor
         val position = Position(x, y, hSpeed, vSpeed, fuel, rotate, power)
-        Console.err.println{s"position $position"}
-
         
-        // Write an action using println
-        // To debug: Console.err.println("Debug messages...")
-        
-
         // 2 integers: rotate power. rotate is the desired rotation angle (should be 0 for level 1), power is the desired thrust power (0 to 4).
         println(strategy.nextMove(position).toString)
     }
 
     // Auxiliary classes
     case class Point(x: Int, y: Int)
-    case class Segment(s: Point, e: Point) {
+    case class Segment(i: Int, s: Point, e: Point, plain: Boolean) {
         def isInside(x: Double): Boolean = s.x <= x && x <= e.x
         def heightAt(x: Double): Double = ( (x - s.x) / (e.x - s.x)) * s.y + ( (e.x - x)  / (e.x - s.x)) * e.y
     }
@@ -54,7 +51,7 @@ object Player extends App {
 
 
         private def createSegments(): List[Segment] = {
-            (for (i <- 0 until points.length - 1) yield Segment(points(i), points(i + 1))).toList
+            (for (i <- 0 until points.length - 1) yield Segment(i, points(i), points(i + 1), points(i).y == points(i + 1).y)).toList
         }
         val segments = createSegments()
         Console.err.println{s"segments $segments"}
@@ -63,6 +60,27 @@ object Player extends App {
         private def findSegment(x: Int): Segment = {
             // FIXME: should be binary search
             segments.find(s => s.isInside(x)).get
+        }
+
+       def findNextPlain(x: Int): Segment = {
+            val current = findSegment(x)
+
+            if (current.plain) current
+            else findNextPlainNearTo(x, current.i, 1)
+        }
+
+        private def findNextPlainNearTo(x: Int, i: Int, offset: Int): Segment = {
+            val ol = if (i - offset >= 0 && segments(i - offset).plain) Some(segments(i - offset)) else None
+            val or = if (i + offset < segments.length && segments(i + offset).plain) Some(segments(i + offset)) else None
+
+            // FIXME: I think can be simpler with better use of Option
+            // FIXME: segment at i+2 could be actually further than i-3, but let's fix only if it's a problem
+            (ol, or) match {
+                case (Some(l), Some(r)) => if (x - l.e.x < r.s.x - x) l else r
+                case (Some(l), None) => l 
+                case (None, Some(r)) => r
+                case _ => findNextPlainNearTo(x, i, offset + 1)
+            }
         }
 
         def heightAt(x: Int): Double = findSegment(x).heightAt(x)
@@ -128,6 +146,15 @@ object Player extends App {
             (distance, newSpeed)
         }
 
+        def calculateTimeToFall(speed: Int, height: Int): Double = {
+            // d = s * t + 0.5 * a * t^2
+            (-speed + scala.math.sqrt(speed*speed + 2 * gravity * height)) / gravity
+        }
+
+        def calculateCurrentLandingPoint(p: Position, h: Int): Double = {
+            p.x + p.hSpeed * calculateTimeToFall(p.vSpeed, h)
+        }
+
         def nextMove(p: Position): Move
     }
 
@@ -167,7 +194,7 @@ object Player extends App {
       * Just try to keep under 40 m/s
       */
     class SpeedLandingStrategy(_map: MoonMap, _gravity: Double, _thrusts: Range, _maxSpeed: Int) extends LandingStrategy(_map, _gravity, _thrusts, _maxSpeed) {
-        private val threshold = 0.9
+        val threshold = 0.9
 
         def chooseThrust(p: Position): Int = p.vSpeed match {
             case s if s > maxSpeed / 2 => 0
@@ -177,4 +204,39 @@ object Player extends App {
 
         override def nextMove(p: Position): Move = Move(chooseThrust(p), 0)
     }
+    /**
+      * Just try to keep under 40 m/s
+      */
+    class Speed2DLandingStrategy(_map: MoonMap, _gravity: Double, _thrusts: Range, _maxSpeed: Int) extends SpeedLandingStrategy(_map, _gravity, _thrusts, _maxSpeed) {
+        val rotation = 45
+
+        def setGoal(x: Int): Segment = map.findNextPlain(x)
+
+        def isTooFast(speed: Int): Int = {
+                if (speed > -(maxSpeed / 2) * threshold ) 1
+                else if (speed < (maxSpeed / 2) * threshold) -1
+                else 0
+        }
+
+        def chooseAngle(p: Position): Int = {
+            val goal = setGoal(p.x)
+            val nextX = calculateCurrentLandingPoint(p, goal.s.y)
+
+            if (goal.isInside(nextX)) isTooFast(p.hSpeed) * rotation
+            else if (nextX > goal.e.x && !(isTooFast(p.hSpeed) == -1)) rotation
+            else if (nextX < goal.s.x && !(isTooFast(p.hSpeed) == +1)) -rotation
+            else 0
+        }
+
+        override def chooseThrust(p: Position): Int = {
+            val goal = setGoal(p.x)
+            val nextX = calculateCurrentLandingPoint(p, goal.s.y)            
+
+            if (goal.isInside(nextX) && isTooFast(p.hSpeed) == 0) super.chooseThrust(p)
+            else thrusts.end
+        }
+
+        override def nextMove(p: Position): Move = Move(chooseThrust(p), chooseAngle(p))
+    }
+
 }
