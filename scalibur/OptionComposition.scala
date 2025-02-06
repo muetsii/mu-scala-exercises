@@ -12,10 +12,11 @@ object OptionComposition extends App {
 
     case class Person(firstName: String, lastName: String, age: Int)
     
-    def createPerson(firstName: Option[String], lastName: Option[String], age: Option[Int]): Option[Person] = (firstName, lastName, age) match {
-        case (Some(fn), Some(ln), Some(a)) => Some(Person(fn, ln, a))
-        case  _ => None
-    }
+    def createPerson(firstName: Option[String], lastName: Option[String], age: Option[Int]): Option[Person] = for {
+        fn <- firstName
+        ln <- lastName
+        a  <- age
+    } yield Person(fn, ln, a)
     
     val person1 = createPerson(Some("Pepe"), Some("Pelas"), None)
     val person2 = createPerson(Some("Pepe"), None, Some(56))
