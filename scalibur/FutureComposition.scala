@@ -9,13 +9,18 @@ object FutureComposition extends App {
     // Simulates a costy operation, sleeping a random time
     def costyOperation(a: Int): Future[Int] = Future {
         val cost = Random.nextInt(10)
-        Thread sleep cost
+        Thread sleep cost * 1000
         a*10
     }
     
     def sumCostyOperations(a: Int, b: Int, c: Int): Future[Int] = {
-        // wait for all costy operations to finish, then sum results
-        // I don't know the syntax yet
+        // this will wait for each operation sequentially!
+        // (it was the expected solution, actually)
+        for {
+            ra <- costyOperation(a)
+            rb <- costyOperation(b)
+            rc <- costyOperation(c)
+        } yield ra + rb + rc
     }
     
     
