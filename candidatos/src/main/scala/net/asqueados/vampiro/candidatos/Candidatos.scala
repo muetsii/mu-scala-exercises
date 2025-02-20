@@ -1,5 +1,5 @@
 object Candidatos extends App {
-    val printer = new PrinterScreen()
+    val printer = new PrinterFile()
     val formatter = new CharacterFormatterLines()
     val generator = new CharacterGenerator()
 
