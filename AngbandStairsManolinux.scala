@@ -68,20 +68,30 @@ object AngbandStairsManolinux extends App with Testeable[List[String], Int] {
             else grid(pos.y)(pos.x)
         }
 
-        def locateHero: List[Point] = { // FIXME: Point, not list
+        def locateHero: Point = {
+            // FIXME: this is weird, but I dont see another way to do in one line
             grid.map(row => row.indexOf(HERO)).zipWithIndex.filter(
                 tuple => tuple._1 != -1
-            ).map(tuple => Point(tuple._2, tuple._1))
+            ).map(tuple => Point(tuple._2, tuple._1)).toList(0)
         }
 
+        def isPassable(pos: Point): Boolean = get(pos) != '#'
+
+        def getAdjacents(pos: Point): List[Point] = List(
+            Point(pos.y + 1, pos.x    ),
+            Point(pos.y    , pos.x + 1),
+            Point(pos.y - 1, pos.x    ),
+            Point(pos.y    , pos.x - 1)
+        )//.filter(adj => isPassable(adj))
     }
 
     override def solve(grid: List[String]): Int = {
         // FIXME: your code here
 
         val level = new FloorMap(grid)
-        println(level.locateHero)
+        val hero = level.locateHero
 
+        println(level.getAdjacents(hero))
         0
     }
 
