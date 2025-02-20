@@ -1,3 +1,5 @@
+import scala.annotation.tailrec
+
 /**
   * Problem: find the way from @ to > and return the number of steps necessary
   *   # are not passable walls.
@@ -43,6 +45,8 @@ object AngbandStairsManolinux extends App with Testeable[List[String], Int] {
 
     val WALL = '#';
     val HERO = '@';
+    val EXIT = '>';
+
     case class Point(y: Int, x: Int)
 
     /*
@@ -60,7 +64,17 @@ object AngbandStairsManolinux extends App with Testeable[List[String], Int] {
         val dimensionsX = grid(0).length
         val dimensionsY = grid.length
 
-        def outOfBounds(pos: Point): Boolean = pos.x >= 0 && pos.y >= 0 && pos.x < dimensionsX && pos.y < dimensionsY
+        case class Move(pos: Point, steps: Int)
+
+        class Visited(grid: Array[Array[Boolean]] = Array.fill(dimensionsY)(Array.fill(dimensionsX)(false))) {
+            def +(pos: Point) = new Visited(
+                grid.updated(pos.y, grid(pos.y).updated(pos.x, true))
+            )
+
+            def apply(pos: Point): Boolean = grid(pos.y)(pos.x)
+        }
+
+        def outOfBounds(pos: Point): Boolean = pos.x < 0 && pos.y < 0 && pos.x >= dimensionsX && pos.y >= dimensionsY
 
         def get(pos: Point): Char = {
             // small hack, out of bounds is wall
@@ -75,24 +89,38 @@ object AngbandStairsManolinux extends App with Testeable[List[String], Int] {
             ).map(tuple => Point(tuple._2, tuple._1)).toList(0)
         }
 
-        def isPassable(pos: Point): Boolean = get(pos) != '#'
+        def isPassable(pos: Point): Boolean = get(pos) != WALL
+        def isExit(pos: Point): Boolean = get(pos) == EXIT
 
         def getAdjacents(pos: Point): List[Point] = List(
             Point(pos.y + 1, pos.x    ),
             Point(pos.y    , pos.x + 1),
             Point(pos.y - 1, pos.x    ),
             Point(pos.y    , pos.x - 1)
-        )//.filter(adj => isPassable(adj))
+        ).filter(adj => isPassable(adj))
+
+        @tailrec
+        final def findExitSteps(
+            pending: List[Move] = List(Move(locateHero, 0)),
+            visited: Visited = new Visited()
+        ): Int = pending match {
+            case current :: tail => if (isExit(current.pos)) current.steps
+            else findExitSteps(
+                if (visited(current.pos)) tail
+                else tail ++ getAdjacents(current.pos).map(
+                    adj => Move(adj, current.steps + 1)
+                ),
+                visited + current.pos
+            )
+            case _ => -1 // never happens if case is correct, but to shut the warning
+        }
     }
 
     override def solve(grid: List[String]): Int = {
         // FIXME: your code here
 
         val level = new FloorMap(grid)
-        val hero = level.locateHero
-
-        println(level.getAdjacents(hero))
-        0
+        level.findExitSteps()
     }
 
     run()
