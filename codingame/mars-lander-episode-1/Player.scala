@@ -3,9 +3,10 @@ import scala.util._
 import scala.io.StdIn._
 
 /**
-  * updated for episode 2
+  * updated for episode 3
   * https://www.codingame.com/ide/puzzle/mars-lander-episode-1
   * https://www.codingame.com/ide/puzzle/mars-lander-episode-2
+  * https://www.codingame.com/ide/puzzle/mars-lander-episode-3
  **/
 object Player extends App {
     Console.err.println("Marx-Lander from New Soviet Union of Socialist Republics") // Not NASA!
@@ -22,7 +23,7 @@ object Player extends App {
             Point(landX, landY)
     }).toList)
 
-    val strategy: LandingStrategy = new Speed2DLandingStrategy(moonMap, GRAVITY, Range(0, 4), MAX_SPEED)
+    val strategy: LandingStrategy = new OpenCaveLandingStrategy(moonMap, GRAVITY, Range(0, 4), MAX_SPEED)
 
     // game loop
     while(true) {
@@ -40,18 +41,81 @@ object Player extends App {
     }
 
     // Auxiliary classes
-    case class Point(x: Int, y: Int)
+    case class Point(x: Int, y: Int) {
+        def min(another: Point) = if (this.x <= another.x) this else another
+        def max(another: Point) = if (this.x <= another.x) another else this
+    }
+
     case class Segment(i: Int, s: Point, e: Point, plain: Boolean) {
         def isInside(x: Double): Boolean = s.x <= x && x <= e.x
         def heightAt(x: Double): Double = ( (x - s.x) / (e.x - s.x)) * s.y + ( (e.x - x)  / (e.x - s.x)) * e.y
+        def maxHeight(): Int = if (s.y > e.y) s.y else e.y
+        def minHeight(): Int = if (s.y > e.y) e.y else s.y
+        def pointIsInside(point: Point): Boolean = point.x >= s.x && point.x <= e.x
+        def pointIsInsideUnderHeight(point: Point, height: Int): Boolean = {
+            point.y >= height && pointIsInside(point)
+        }
+
+        def isSegmentColliding(anotherSegment: Segment): Boolean = {
+            (anotherSegment.s.x < this.s.x && anotherSegment.e.x >= this.s.x) ||
+            (anotherSegment.s.x >= this.s.x && anotherSegment.s.x <= this.e.x)
+        }
+
+        def isSegmentCollidingUnderHeight(anotherSegment: Segment, height: Int) = {
+            anotherSegment.minHeight <= height &&
+            isSegmentColliding(anotherSegment)
+        }
+
+        // assumes the segments intersect, and there would be an open space
+        // and anotherSegment is over this segment
+        // FIXME? for the moment, also that there is only one aperture
+        def intersect(anotherSegment: Segment): Segment = {
+            if (this.i == anotherSegment.i) return this
+
+            val sx = if (anotherSegment.s.x == this.s.x) anotherSegment.e.x
+            else if (anotherSegment.s.x < this.s.x) anotherSegment.e.x
+            else this.s.x
+            val ex = if (anotherSegment.e.x == this.e.x) anotherSegment.e.x
+            else if (anotherSegment.s.x <= this.s.x) this.e.x
+            else anotherSegment.s.x
+            val h = anotherSegment.maxHeight
+
+            Segment(this.i, Point(sx, h), Point(ex, h), true)
+        }
+
+        /** from a list of another segments, create an imaginary segment which is the area not covered with highest height */
+        def aperture(p: Position, allSegments: List[Segment], intersection: Segment = this): Segment = allSegments match {
+            case Nil => intersection
+            case head :: tail => {
+                if (intersection.isSegmentCollidingUnderHeight(head, p.y)) aperture(
+                    p,
+                    tail,
+                    intersection.intersect(head)
+                ) else aperture(
+                    p,
+                    tail,
+                    intersection
+                )
+            }
+        }
+
+        def rise(newHeight: Int): Segment = Segment(i, Point(s.x, newHeight), Point(e.x, newHeight), true)
+
     }
+
+    object Segment {
+        def create (i: Int, p1: Point, p2: Point): Segment = {
+            Segment(i, p1.min(p2), p1.max(p2), p1.y == p2.y)
+        }
+    }
+
     class MoonMap(_points: List[Point]) {
         val points = _points
 
 
 
         private def createSegments(): List[Segment] = {
-            (for (i <- 0 until points.length - 1) yield Segment(i, points(i), points(i + 1), points(i).y == points(i + 1).y)).toList
+            (for (i <- 0 until points.length - 1) yield Segment.create(i, points(i), points(i + 1))).toList
         }
         val segments = createSegments()
         Console.err.println{s"segments $segments"}
@@ -210,7 +274,7 @@ object Player extends App {
     class Speed2DLandingStrategy(_map: MoonMap, _gravity: Double, _thrusts: Range, _maxSpeed: Int) extends SpeedLandingStrategy(_map, _gravity, _thrusts, _maxSpeed) {
         val rotation = 45
 
-        def setGoal(x: Int): Segment = map.findNextPlain(x)
+        def setGoal(p: Position): Segment = map.findNextPlain(p.x)
 
         def isTooFast(speed: Int): Int = {
                 if (speed > -(maxSpeed / 2) * threshold ) 1
@@ -219,7 +283,7 @@ object Player extends App {
         }
 
         def chooseAngle(p: Position): Int = {
-            val goal = setGoal(p.x)
+            val goal = setGoal(p)
             val nextX = calculateCurrentLandingPoint(p, goal.s.y)
 
             if (goal.isInside(nextX)) isTooFast(p.hSpeed) * rotation
@@ -229,7 +293,7 @@ object Player extends App {
         }
 
         override def chooseThrust(p: Position): Int = {
-            val goal = setGoal(p.x)
+            val goal = setGoal(p)
             val nextX = calculateCurrentLandingPoint(p, goal.s.y)            
 
             if (goal.isInside(nextX) && isTooFast(p.hSpeed) == 0) super.chooseThrust(p)
@@ -237,6 +301,59 @@ object Player extends App {
         }
 
         override def nextMove(p: Position): Move = Move(chooseThrust(p), chooseAngle(p))
+    }
+
+    /** Class to overcome cave obstacles. It works under the assumption that some of the goal
+      will be exposed to the sky, like in the test cases
+
+      The asumption was wrong. My sight is terrible, but actually the goal is totally covered.
+      We need another Strategy.
+
+      Based in Speed2DLandingStrategy
+      */
+    class OpenCaveLandingStrategy(_map: MoonMap, _gravity: Double, _thrusts: Range, _maxSpeed: Int) extends Speed2DLandingStrategy(_map, _gravity, _thrusts, _maxSpeed) {
+        val points = _map.points.sortWith(_.x < _.x)
+
+        def getObstacleStartEnd(x: Int, goal: Segment) = {
+            if (x < goal.s.x) (x, goal.e.x)
+            else if (x > goal.e.x) (goal.s.x, x)
+            else (goal.s.x, goal.e.x)
+        }
+
+        def riseGoalIfObstacles(goal: Segment, sx: Int, ex: Int, points: List[Point]): Segment = points match {
+            case Nil => goal
+            case head :: tail => {
+                if (head.x > ex) goal
+                else if (head.x < sx) riseGoalIfObstacles(goal, sx, ex, tail)
+                else if (head.y > goal.s.y) riseGoalIfObstacles(goal.rise(head.y), sx, ex, tail)
+                else riseGoalIfObstacles(goal, sx, ex, tail)
+            }
+        }
+
+        override def setGoal(p: Position): Segment = {
+            val aperture = super.setGoal(p).aperture(p, map.segments)
+            if (aperture.isInside(p.x)) aperture
+            else {
+                val sx = aperture.s.x.min(p.x)
+                val ex = aperture.e.x.max(p.x)
+                riseGoalIfObstacles(aperture, sx, ex, points)
+            }
+
+        }
+
+        override def chooseAngle(p: Position): Int = {
+            val goal = setGoal(p)
+
+            if (goal.s.y >= p.y) 0
+            else super.chooseAngle(p)
+        }
+
+        override def chooseThrust(p: Position): Int = {
+            val goal = setGoal(p)
+
+            if (goal.s.y >= p.y) thrusts.end
+            else super.chooseThrust(p)
+        }
     }
 
 }
