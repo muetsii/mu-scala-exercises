@@ -23,7 +23,7 @@ object Player extends App {
             Point(landX, landY)
     }).toList)
 
-    val strategy: LandingStrategy = new OpenCaveLandingStrategy(moonMap, GRAVITY, Range(0, 4), MAX_SPEED)
+    val strategy: LandingStrategy = new CaveLandingStrategy(moonMap, GRAVITY, Range(0, 4), MAX_SPEED)
 
     // game loop
     while(true) {
@@ -44,6 +44,9 @@ object Player extends App {
     case class Point(x: Int, y: Int) {
         def min(another: Point) = if (this.x <= another.x) this else another
         def max(another: Point) = if (this.x <= another.x) another else this
+        def distanceTo(another: Point): Double = math.sqrt(
+            math.pow(this.x - another.x, 2) + math.pow(this.y - another.y, 2)
+        )
     }
 
     case class Segment(i: Int, s: Point, e: Point, plain: Boolean) {
@@ -101,6 +104,45 @@ object Player extends App {
 
         def rise(newHeight: Int): Segment = Segment(i, Point(s.x, newHeight), Point(e.x, newHeight), true)
 
+        /** is point p inside segment (s - e)? */
+        def isPointOnSegment(p: Point): Boolean = {
+            p.x <= math.max(s.x, e.x) && p.x >= math.min(s.x, e.x) &&
+            p.y <= math.max(s.y, e.y) && p.y >= math.min(s.y, e.y)
+        }
+
+        def isIntersecting(another: Segment): Boolean = {
+            // Find the four orientations needed for general and special cases
+            val o1 = Point.orientation(this.s, this.e, another.s)
+            val o2 = Point.orientation(this.s, this.e, another.e)
+            val o3 = Point.orientation(another.s, another.e, this.s)
+            val o4 = Point.orientation(another.s, another.e, this.e)
+
+            // general case
+            (o1 != o2 && o3 != o4) ||
+            // segment containing a point of the other
+            (o1 == Point.ORIENTATION_COLLINEAR && this.isPointOnSegment(another.s)) ||
+            (o2 == Point.ORIENTATION_COLLINEAR && this.isPointOnSegment(another.e)) ||
+            (o3 == Point.ORIENTATION_COLLINEAR && another.isPointOnSegment(this.s)) ||
+            (o4 == Point.ORIENTATION_COLLINEAR && another.isPointOnSegment(this.e))
+        }
+    }
+
+    object Point {
+        val ORIENTATION_COLLINEAR = 0
+        val ORIENTATION_CLOCKWISE = 1
+        val ORIENTATION_COUNTERCLOCKWISE = 2
+        /**
+          *  Find the orientation.
+          *  Inspired in Duck.ai, inspired in https://www.geeksforgeeks.org/check-if-two-given-line-segments-intersect/
+          * Used for check intersection
+          */
+        def orientation(p: Point, q: Point, r: Point): Int = {
+            val val1 = (q.y - p.y) * (r.x - q.x)
+            val val2 = (q.x - p.x) * (r.y - q.y)
+            if (val1 > val2) ORIENTATION_CLOCKWISE
+            else if (val1 < val2) ORIENTATION_COUNTERCLOCKWISE
+            else ORIENTATION_COLLINEAR
+        }
     }
 
     object Segment {
@@ -109,10 +151,10 @@ object Player extends App {
         }
     }
 
-    class MoonMap(_points: List[Point]) {
+    class MoonMap(_points: List[Point], _max_x: Int = 7000, _max_y: Int = 3000) {
         val points = _points
-
-
+        val max_x = _max_x
+        val max_y = _max_y
 
         private def createSegments(): List[Segment] = {
             (for (i <- 0 until points.length - 1) yield Segment.create(i, points(i), points(i + 1))).toList
@@ -148,9 +190,112 @@ object Player extends App {
         }
 
         def heightAt(x: Int): Double = findSegment(x).heightAt(x)
+
+        // ++ Methods for "djikstra"
+        def isOutOfBounds(p: Point): Boolean = {
+            (p.x < 0 || p.x >= max_x || p.y < 0 || p.y >= max_y)
+        }
+
+        def isTheWayClear(p1: Point, p2: Point): Boolean = {
+            val way = Segment.create(-1, p1, p2)
+
+            // isPointOnSegment because we admit that p2 is on the goal
+            segments.forall(s =>  !isSegmentIntersecting(way, s) || intersectException(p1, p2, s))
+        }
+        def isTheWayClear(ship: Point, goal: Segment): Boolean = {
+            // we'll check the way to each extreme
+            // not perfect but hopefully will work
+            // we dont choose exact extremes bc they are shared
+            // with other segments
+            isTheWayClear(ship, Point(goal.s.x + 1, goal.s.y)) || isTheWayClear(ship, Point(goal.e.x - 1, goal.e.y))
+        }
+
+        // the one to avoid that it collides with the goal
+        def intersectException(p1: Point, p2: Point, segment: Segment) = {
+            (segment.plain && (segment.isPointOnSegment(p2) || (segment.isPointOnSegment(p1))))
+        }
+
+        def isSegmentIntersecting(way: Segment, surface: Segment): Boolean = surface.isIntersecting(way)
+
+        val allDirections = List(
+            Point(-1,  1),
+            Point(-1, -1),
+            Point(-1,  0),
+            Point( 0, -1),
+            Point( 0,  1),
+            Point( 1, -1),
+            Point( 1,  0),
+            Point( 1,  1)
+        )
+        /** Gets "adjacents", adjacents are points in the "eight directions" filtering those
+          *  intersecting with the surface
+          */
+        def getAdjacents(
+            ship: Point,
+            increment: Int,
+            visited: Set[Point]
+        ): List[Point] = {
+            allDirections.map(
+                // direction is reversed to easily pass the opposite direction
+                d => Point(ship.x + d.x * increment, ship.y + d.y * increment)
+            ).filter(
+                destination => !isOutOfBounds(destination) && !visited.contains(destination) && isTheWayClear(ship, destination)
+            )
+        }
+
+        val DIST_DIVISION = 3
+        case class Step(pos: Point, firstJump: Option[Point] = None)
+        /** Find a point in the middle of a way to the goal, djikstra style */
+        def findNextWayWhenBlocked(
+            ship: Point,
+            goal: Segment
+        ): Option[Point] = {
+            // we calculate the increment arbirarily to the start, shouldn't matter too much
+            val increment = (max_x.min(max_y) / DIST_DIVISION).round.toInt
+            findNextWayWhenBlocked(List(Step(ship, None)), goal, increment)
+        }
+
+        /** Find a point in the middle of a way to the goal, djikstra style */
+        def findNextWayWhenBlocked(
+            pending: List[Step],
+            goal: Segment,
+            increment: Int,
+            visited: Set[Point] = Set[Point]()
+        ): Option[Point] = pending match {
+            case Nil => None
+            case head :: tail => {
+                val pos = head.pos
+                if (!visited.contains(pos)) {
+                    if (
+                        isTheWayClear(pos, goal)
+                    )  head.firstJump
+                    else {
+                        val nextVisited = visited + pos
+                        val newSteps = getAdjacents(pos, increment, visited).map(
+                            adj => Step(adj, Option(head.firstJump.getOrElse(adj)))
+                        )
+                        val nextPending = tail ++ newSteps
+
+                        findNextWayWhenBlocked(
+                            nextPending,
+                            goal,
+                            increment,
+                            nextVisited
+                        )
+                    }
+                } else findNextWayWhenBlocked(
+                    tail,
+                    goal,
+                    increment,
+                    visited
+                )
+            }
+        }
     }
 
-    case class Position(x: Int, y: Int, hSpeed: Int, vSpeed: Int, fuel: Int, rotate: Int, power: Int)
+    case class Position(x: Int, y: Int, hSpeed: Int, vSpeed: Int, fuel: Int, rotate: Int, power: Int) {
+        val toPoint: Point = Point(x, y)
+    }
     case class Move(thrust: Int, angle: Double) {
         // for the moment I'm not sure if I will use degrees or radians
         // for the moment it's in degrees, just make it Int
@@ -356,4 +501,58 @@ object Player extends App {
         }
     }
 
+    /**
+      *  Strategy using djikstra if the cave is closed
+      */
+    class CaveLandingStrategy(_map: MoonMap, _gravity: Double, _thrusts: Range, _maxSpeed: Int) extends Speed2DLandingStrategy(_map, _gravity, _thrusts, _maxSpeed) {
+        override def setGoal(p: Position): Segment = {
+            val goal = super.setGoal(p)
+
+            if (moonMap.isTheWayClear(p.toPoint, goal.s)) {
+                if (moonMap.isTheWayClear(p.toPoint, goal.e)) goal
+                else Segment.create(-3, Point(goal.s.x, goal.s.y), Point(goal.s.x + 1, goal.s.y))
+            } else if (moonMap.isTheWayClear(p.toPoint, goal.e))
+                Segment.create(-3, Point(goal.s.x, goal.s.y), Point(goal.s.x + 1, goal.s.y))
+            else {
+                val nextDest = moonMap.findNextWayWhenBlocked(p.toPoint, goal)
+
+                nextDest match {
+                    case None => {
+                        Console.err.println(s"DANGER: we didnt find a way to goal $goal")
+                        goal
+                    }
+                // turn destination point into a tiny goal
+                    case Some(d) => pointToGoal(p, d)
+                }
+            }
+        }
+
+        def pointToGoal(ship: Position, p: Point): Segment = {
+            // Segment.create(-1, p, Point(d.p + 1, p.y))
+            val dx = ship.x - p.x
+            val dy = ship.y - p.y
+
+            val x = if (dx >= 0) 0 else moonMap.max_x - 1
+            val y = if (dy >= 0) 0 else moonMap.max_y - 1
+            Segment.create(
+                -1,
+                Point(x, y),
+                Point(x + 1, y)
+            )
+        }
+
+        override def chooseAngle(p: Position) = {
+            if (setGoal(p).s.y > p.y && p.vSpeed <= 0) 0
+            else super.chooseAngle(p)
+        }
+
+        override def chooseThrust(p: Position): Int = {
+            val goal = setGoal(p)
+
+            if (goal.s.y >= p.y) thrusts.end
+            else if (p.vSpeed >= 20) 0
+            else if (p.y >= 2500 && p.vSpeed > 0) 0
+            else super.chooseThrust(p)
+        }
+    }
 }
